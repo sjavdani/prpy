@@ -28,6 +28,7 @@
 import numpy
 import kin
 
+XYZYPR_TO_XYZRPY = [0, 1, 2, 5, 4, 3]
 
 class TSR(object):
     def __init__(self, T0_w=None, Tw_e=None, Bw=None, link=None,
@@ -42,18 +43,25 @@ class TSR(object):
         assert self.Tw_e.shape == (4, 4)
         assert self.Bw.shape == (6, 2)
 
-    def distance(self, q):
-        pass
+    def distance(self, T0, weight=None):
+        Tw = numpy.dot(T0, T0_w)
+        xyzypr = kin.pose_to_xyzypr(Tw)
+        xyzrpy = xyzypr[XYZYPR_TO_XYZRPY]
+
+        distance_vector = numpy.maximum(
+            numpy.maximum(xyzrpy - self.Bw[:, 1], numpy.zeros(6)),
+            numpy.maximum(self.Bw[:, 1] - xyzrpy, numpy.zeros(6))
+        )
+        return numpy.linalg.norm(weight * distance_vector, ord=2)
 
     def sample(self, num_samples=1, T_pre=None, T_post=None):
-        # TODO: What should this be called?
         B_norm = numpy.random.uniform(low=0., high=1., size=(num_samples, 6))
         B = B_norm * (self.Bw[:, 1] - self.Bw[:, 0]) + self.Bw[:, 0]
 
         # TODO: Vectorize this.
         Ts = []
         for b in B:
-            xyzypr = [ b[0], b[1], b[2], b[5], b[4], b[3]]
+            xyzypr = b[XYZYPR_TO_XYZRPY]
             Tw = kin.pose_to_H(kin.pose_from_xyzypr(xyzypr))
             T = numpy.dot(numpy.dot(T0_w, Tw), Tw_e)
 
