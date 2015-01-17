@@ -25,6 +25,8 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 # -*- coding: utf-8 -*-
+import numpy
+import kin
 
 
 class TSR(object):
@@ -36,11 +38,61 @@ class TSR(object):
         self.link = self.link
         self.children = children if children is not None else []
 
+        assert self.T0_w.shape == (4, 4)
+        assert self.Tw_e.shape == (4, 4)
+        assert self.Bw.shape == (6, 2)
+
     def distance(self, q):
         pass
 
-    def sample(self, num_samples):
-        pass
+    def sample(self, num_samples=1, T_pre=None, T_post=None):
+        # TODO: What should this be called?
+        B_norm = numpy.random.uniform(low=0., high=1., size=(num_samples, 6))
+        B = B_norm * (self.Bw[:, 1] - self.Bw[:, 0]) + self.Bw[:, 0]
+
+        # TODO: Vectorize this.
+        Ts = []
+        for b in B:
+            xyzypr = [ b[0], b[1], b[2], b[5], b[4], b[3]]
+            Tw = kin.pose_to_H(kin.pose_from_xyzypr(xyzypr))
+            T = numpy.dot(numpy.dot(T0_w, Tw), Tw_e)
+
+            if T_pre:
+                T = numpy.dot(T_pre, T)
+            if T_post:
+                T = numpy.dot(T, T_post)
+
+            Ts.append(T)
+
+        return Ts
+
+    def sample_links(self, num_samples=1, T_pre=None):
+        Ts_parent = self.sample(num_samples=num_samples, T_pre=T_pre)
+        Ts_parent = numpy.array(Ts)
+        D = {}
+
+        if self.link:
+            D[self.link] = Ts_parent
+
+        for child in self.children:
+            D_child = child.sample_links(num_samples=num_samples)
+
+            # Any duplicate link transform is a zero measure set and cannot be
+            # sampled. This is invalid.
+            for link, Ts_child in D.iteritems():
+                if link in D_child:
+                    raise ValueError('Duplicate link transform for "{:s}" not'
+                                     ' supported.'.format(self.link.GetName()))
+
+                D[link] = self._matrix_dot(Ts_parent, Ts_child)
+
+        return D
+
+    @staticmethod
+    def _matrix_dot(A, B):
+        # WTF?!
+        # http://numpy-discussion.10968.n7.nabble.com/vectorized-multi-matrix-multiplication-tp21225p21227.html
+        return numpy.einsum('nij,njk->nik', A, B)
 
     def to_dict(self):
         return {
