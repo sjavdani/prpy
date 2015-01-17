@@ -201,6 +201,14 @@ class TSR(object):
         return D
 
     def validate(self):
+        """ Verifies the consistency of parent and child links in this tree.
+
+        This method verifies that the invariant child.T0_link = self.Te_link
+        for all children in this subtree. If the constraint is violated, this
+        method raises a ValueError. Unlike the TSR constructor, this method
+        does not attempt to infer the correct value for these properties if
+        they are not set.
+        """
         for child in self.children:
             if child.T0_link != self.Te_link:
                 raise ValueError(
@@ -211,6 +219,10 @@ class TSR(object):
             child.validate()
 
     def to_dict(self):
+        """ Serializes this TSR, and all children, to a dict
+
+        @return dictionary representation of this TSR
+        """
         return {
             'T0_w': T_0w.tolist(),
             'Tw_e': Tw_e.tolist(),
@@ -223,10 +235,18 @@ class TSR(object):
         }
 
     def to_json(self):
+        """ Serializes this TSR, and all children, to JSON
+
+        @return string encoding this TSR as JSON
+        """
         from json import dumps
         return dumps(self.to_dict())
 
     def to_yaml(self):
+        """ Serializes this TSR, and all children, to YAML
+
+        @return string encoding this TSR as YAML
+        """
         from yaml import dumps
         return dumps(self.to_dict())
 
