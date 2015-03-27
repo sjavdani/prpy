@@ -31,6 +31,7 @@
 import logging
 import numpy
 import openravepy
+import itertools
 import time
 from base import BasePlanner, PlanningError, PlanningMethod
 import prpy.util
@@ -172,6 +173,65 @@ class VectorFieldPlanner(BasePlanner):
 
         return self.FollowVectorField(robot, vf_straightline,
                                       TerminateMove, timelimit)
+
+    @PlanningMethod
+    def PlanToTSR(self, robot, tsrchains,
+                  timelimit=1.0, ranker=None, max_deviation=2*numpy.pi,
+                  **kw_args):
+        """
+        Plan to a desired TSR set using a-priori goal sampling.  This samples
+        goals from the specified TSRs, while using the vector field planner to
+        attempt to plan to the resulting affine transformations.
+
+        This will currently return failure if the provided TSR chains require
+        any constraint other than goal sampling.
+
+        @param robot the robot whose active manipulator will be used
+        @param tsrchains a list of TSR chains that define a goal set
+        @param timelimit the maximum time to spend sampling goal TSR chains
+        @param max_deviation the maximum per-joint deviation from current pose
+                             that can be considered a valid sample.
+        @return traj a trajectory that satisfies the specified TSR chains
+        """
+        # Plan using the active manipulator.
+        with robot.GetEnv():
+            manipulator = robot.GetActiveManipulator()
+
+            # Distance from current configuration is default ranking.
+            if ranker is None:
+                from ..ik_ranking import NominalConfiguration
+                ranker = NominalConfiguration(manipulator.GetArmDOFValues(),
+                                              max_deviation=max_deviation)
+
+        # Test for tsrchains that cannot be handled.
+        for tsrchain in tsrchains:
+            if tsrchain.sample_start or tsrchain.constrain:
+                raise PlanningError(
+                    'Cannot handle start or trajectory-wide TSR constraints.')
+        tsrchains = [t for t in tsrchains if t.sample_goal]
+
+        # Create an iterator that cycles through each TSR chain.
+        tsr_cycler = itertools.cycle(tsrchains)
+
+        # Create an iterator that cycles TSR chains until the timelimit.
+        timelimit_time = time.time() + timelimit
+        tsr_sampler = itertools.takewhile(
+            lambda v: time.time() < timelimit_time, tsr_cycler)
+
+        # Sample a list of TSR poses and collate valid IK solutions.
+        for tsrchain in tsr_sampler:
+            ik_goal = tsrchain.sample()
+            try:
+                return self.PlanToEndEffectorPose(
+                    robot, ik_goal,
+                    timelimit=max(0.1, timelimit_time - time.time()),
+                    **kw_args
+                )
+            except PlanningError:
+                continue
+
+        # If none of the planning attempts succeeded, report failure.
+        raise PlanningError('Reached timeout without finding solution')
 
     @PlanningMethod
     def FollowVectorField(self, robot, fn_vectorfield, fn_terminate,
