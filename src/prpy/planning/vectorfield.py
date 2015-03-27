@@ -224,7 +224,7 @@ class VectorFieldPlanner(BasePlanner):
             try:
                 return self.PlanToEndEffectorPose(
                     robot, ik_goal,
-                    timelimit=max(0.1, timelimit_time - time.time()),
+                    timelimit=min(0.1, timelimit_time - time.time()),
                     **kw_args
                 )
             except PlanningError:
