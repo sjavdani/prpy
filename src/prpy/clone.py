@@ -30,9 +30,10 @@
 
 import openravepy
 import threading
+import exceptions
 
 
-class CloneException(Exception):
+class CloneException(exceptions.PrPyException):
     pass
 
 

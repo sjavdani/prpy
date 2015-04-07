@@ -36,14 +36,21 @@ class PlanToConfigurationTest(object):
                 self.robot, self.config_feasible_goal)
 
     def test_PlanToConfiguration_StartInSelfCollision_Throws(self):
+        from prpy.clone import CloneException
+        from prpy.exceptions import PrPyException
+
         # Setup
         with self.env:
             self.robot.SetActiveDOFValues(self.config_self_collision)
 
         # Test/Assert
-        with self.assertRaises(PlanningError):
+        with self.assertRaises(PrPyException) as cm:
             self.planner.PlanToConfiguration(
                 self.robot, self.config_feasible_goal)
+
+        # Cloning the environment may fail if the robot is in self-collision.
+        self.assertTrue(isinstance(cm.exception, CloneException)
+                     or isinstance(cm.exception, PlanningError))
 
     def test_PlanToConfiguration_GoalInCollision_Throws(self):
         # Setup

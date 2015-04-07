@@ -41,6 +41,9 @@ class PlanToEndEffectorPoseTest(object):
             self.planner.PlanToEndEffectorPose(self.robot, goal_ik)
 
     def test_PlanToEndEffectorPose_StartInSelfCollision_Throws(self):
+        from prpy.clone import CloneException
+        from prpy.exceptions import PrPyException
+
         # Setup
         with self.env:
             self.robot.SetActiveDOFValues(self.config_feasible_goal)
@@ -49,8 +52,12 @@ class PlanToEndEffectorPoseTest(object):
             self.robot.SetActiveDOFValues(self.config_self_collision)
 
         # Test/Assert
-        with self.assertRaises(PlanningError):
+        with self.assertRaises(PrPyException) as cm:
             self.planner.PlanToEndEffectorPose(self.robot, goal_ik)
+
+        # Cloning the environment may fail if the robot is in self-collision.
+        self.assertTrue(isinstance(cm.exception, CloneException)
+                     or isinstance(cm.exception, PlanningError))
 
     def test_PlanToEndEffectorPose_GoalInCollision_Throws(self):
         # Setup
