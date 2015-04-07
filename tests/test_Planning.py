@@ -93,15 +93,19 @@ class SnapPlannerTests(BasePlannerTest,
     def setUp(self):
         BasePlannerTest.setUp(self)
 
+    # SnapPlanner only succeeds when the path is collision free. We guarantee
+    # that this is the case by disabling everything in the environment.
     def test_PlanToConfiguration_GoalIsFeasible_FindsSolution(self):
         with self.env:
             self._disable_everything()
-            super(SnapPlannerTests, self).test_PlanToConfiguration_GoalIsFeasible_FindsSolution()
+            super(SnapPlannerTests,
+                self).test_PlanToConfiguration_GoalIsFeasible_FindsSolution()
 
     def test_PlanToEndEffectorPose_GoalIsFeasible_FindsSolution(self):
         with self.env:
             self._disable_everything()
-            super(SnapPlannerTests, self).test_PlanToEndEffectorPose_GoalIsFeasible_FindsSolution()
+            super(SnapPlannerTests,
+                self).test_PlanToEndEffectorPose_GoalIsFeasible_FindsSolution()
 
     def _disable_everything(self):
         for body in self.env.GetBodies():
