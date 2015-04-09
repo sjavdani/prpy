@@ -106,6 +106,7 @@ class VectorFieldPlanner(BasePlanner):
                                 max_distance=None, timelimit=5.0,
                                 position_tolerance=0.01,
                                 angular_tolerance=0.15,
+                                gain_error=0.01,
                                 **kw_args):
         """
         Plan to a desired end-effector offset with move-hand-straight
@@ -118,6 +119,7 @@ class VectorFieldPlanner(BasePlanner):
         @param timelimit timeout in seconds
         @param position_tolerance constraint tolerance in meters
         @param angular_tolerance constraint tolerance in radians
+        @param gain_error gain on error from the straight-line constraint
         @return traj
         """
         if distance < 0:
@@ -143,15 +145,26 @@ class VectorFieldPlanner(BasePlanner):
         Tstart = manip.GetEndEffectorTransform()
 
         def vf_straightline():
-            twist = util.GeodesicTwist(manip.GetEndEffectorTransform(),
-                                            Tstart)
-            twist[0:3] = direction
-            dqout, tout = util.ComputeJointVelocityFromTwist(
-                    robot, twist)
+            # Project the current transform onto the line constraint.
+            Tactual = manip.GetEndEffectorTransform()
+            error = util.GeodesicError(Tactual, Tstart)
+            distance_moved = numpy.dot(error[0:3], direction)
+
+            Tdesired = Tstart.copy()
+            Tdesired[0:3, 3] += direction * distance_moved
+
+            # Create a twist that: (1) applies a feed-forward velocity along
+            # the line constraint and (2) a proportional term that pulls the
+            # manipulator towards the constraint.
+            twist = gain_error * util.GeodesicTwist(Tactual, Tdesired)
+            twist[0:3] += direction
+
+            # Compute joint velocities that follow the twist.
+            dqout, tout = util.ComputeJointVelocityFromTwist(robot, twist)
 
             # Go as fast as possible
             vlimits= robot.GetDOFVelocityLimits(robot.GetActiveDOFIndices())
-            dqout = min(abs(vlimits/dqout))*dqout
+            dqout = min(abs(vlimits / dqout)) * dqout
             return dqout
 
         def TerminateMove():
