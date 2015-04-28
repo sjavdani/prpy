@@ -60,25 +60,24 @@ class GreedyIKPlanner(BasePlanner):
         @return traj
         """
 
-        with robot:
-            # Create geodesic trajectory in SE(3)
-            manip = robot.GetActiveManipulator()
-            start_pose = manip.GetEndEffectorTransform()
-            traj = openravepy.RaveCreateTrajectory(self.env, '')
-            spec = openravepy.IkParameterization.\
-                GetConfigurationSpecificationFromType(
-                        openravepy.IkParameterizationType.Transform6D,
-                        'linear')
-            traj.Init(spec)
-            traj.Insert(traj.GetNumWaypoints(),
-                        openravepy.poseFromMatrix(start_pose))
-            traj.Insert(traj.GetNumWaypoints(),
-                        openravepy.poseFromMatrix(goal_pose))
-            openravepy.planningutils.RetimeAffineTrajectory(
-                traj,
-                maxvelocities=0.1*numpy.ones(7),
-                maxaccelerations=0.1*numpy.ones(7)
-            )
+        # Create geodesic trajectory in SE(3)
+        manip = robot.GetActiveManipulator()
+        start_pose = manip.GetEndEffectorTransform()
+        traj = openravepy.RaveCreateTrajectory(self.env, '')
+        spec = openravepy.IkParameterization.\
+            GetConfigurationSpecificationFromType(
+                    openravepy.IkParameterizationType.Transform6D,
+                    'linear')
+        traj.Init(spec)
+        traj.Insert(traj.GetNumWaypoints(),
+                    openravepy.poseFromMatrix(start_pose))
+        traj.Insert(traj.GetNumWaypoints(),
+                    openravepy.poseFromMatrix(goal_pose))
+        openravepy.planningutils.RetimeAffineTrajectory(
+            traj,
+            maxvelocities=0.1*numpy.ones(7),
+            maxaccelerations=0.1*numpy.ones(7)
+        )
 
         return self.PlanWorkspacePath(robot, traj, timelimit)
 
@@ -110,31 +109,30 @@ class GreedyIKPlanner(BasePlanner):
         direction = numpy.array(direction, dtype='float')
         direction /= numpy.linalg.norm(direction)
 
-        with robot:
-            manip = robot.GetActiveManipulator()
-            start_pose = manip.GetEndEffectorTransform()
-            traj = openravepy.RaveCreateTrajectory(self.env, '')
-            spec = openravepy.IkParameterization.\
-                GetConfigurationSpecificationFromType(
-                        openravepy.IkParameterizationType.Transform6D,
-                        'linear')
-            traj.Init(spec)
+        manip = robot.GetActiveManipulator()
+        start_pose = manip.GetEndEffectorTransform()
+        traj = openravepy.RaveCreateTrajectory(self.env, '')
+        spec = openravepy.IkParameterization.\
+            GetConfigurationSpecificationFromType(
+                    openravepy.IkParameterizationType.Transform6D,
+                    'linear')
+        traj.Init(spec)
+        traj.Insert(traj.GetNumWaypoints(),
+                    openravepy.poseFromMatrix(start_pose))
+        min_pose = numpy.copy(start_pose)
+        min_pose[0:3, 3] += distance*direction
+        traj.Insert(traj.GetNumWaypoints(),
+                    openravepy.poseFromMatrix(min_pose))
+        if max_distance is not None:
+            max_pose = numpy.copy(start_pose)
+            max_pose[0:3, 3] += max_distance*direction
             traj.Insert(traj.GetNumWaypoints(),
-                        openravepy.poseFromMatrix(start_pose))
-            min_pose = numpy.copy(start_pose)
-            min_pose[0:3, 3] += distance*direction
-            traj.Insert(traj.GetNumWaypoints(),
-                        openravepy.poseFromMatrix(min_pose))
-            if max_distance is not None:
-                max_pose = numpy.copy(start_pose)
-                max_pose[0:3, 3] += max_distance*direction
-                traj.Insert(traj.GetNumWaypoints(),
-                            openravepy.poseFromMatrix(max_pose))
-            openravepy.planningutils.RetimeAffineTrajectory(
-                traj,
-                maxvelocities=0.1*numpy.ones(7),
-                maxaccelerations=0.1*numpy.ones(7)
-            )
+                        openravepy.poseFromMatrix(max_pose))
+        openravepy.planningutils.RetimeAffineTrajectory(
+            traj,
+            maxvelocities=0.1*numpy.ones(7),
+            maxaccelerations=0.1*numpy.ones(7)
+        )
 
         return self.PlanWorkspacePath(robot, traj,
                                       timelimit, min_waypoint_index=1)
@@ -152,8 +150,10 @@ class GreedyIKPlanner(BasePlanner):
         @param timelimit timeout in seconds
         @return qtraj configuration space path
         """
+        from openravepy import CollisionOptions, CollisionOptionsStateSaver
 
-        with robot:
+        with CollisionOptionsStateSaver(self.env.GetCollisionChecker(),
+                                        CollisionOptions.ActiveDOFs):
             manip = robot.GetActiveManipulator()
             robot.SetActiveDOFs(manip.GetArmIndices())
 

@@ -104,7 +104,6 @@ class OpenRAVERetimer(BasePlanner):
         output_traj = SimplifyTrajectory(input_path, robot)
         self.planner.InitPlan(None, params_str)
 
-
         with CollisionOptionsStateSaver(self.env.GetCollisionChecker(),
                                         CollisionOptions.ActiveDOFs):
             status = self.planner.PlanPath(output_traj, releasegil=True)

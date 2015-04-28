@@ -198,10 +198,13 @@ class VectorFieldPlanner(BasePlanner):
         @param kw_args keyword arguments to be passed to fn_vectorfield
         @return traj
         """
+        from openravepy import CollisionOptions, CollisionOptionsStateSaver
+
         start_time = time.time()
 
         try:
-            with robot:
+            with CollisionOptionsStateSaver(self.env.GetCollisionChecker(),
+                                            CollisionOptions.ActiveDOFs):
                 manip = robot.GetActiveManipulator()
                 robot.SetActiveDOFs(manip.GetArmIndices())
                 # Populate joint positions and joint velocities

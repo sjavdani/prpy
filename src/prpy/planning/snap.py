@@ -99,6 +99,8 @@ class SnapPlanner(BasePlanner):
         return self._Snap(robot, ik_solution, **kw_args)
 
     def _Snap(self, robot, goal, **kw_args):
+        from openravepy import CollisionOptions, CollisionOptionsStateSaver
+
         Closed = openravepy.Interval.Closed
 
         curr = robot.GetActiveDOFValues()
@@ -110,7 +112,11 @@ class SnapPlanner(BasePlanner):
         params = openravepy.Planner.PlannerParameters()
         params.SetRobotActiveJoints(robot)
         params.SetGoalConfig(goal)
-        check = params.CheckPathAllConstraints(curr, goal, [], [], 0., Closed)
+
+        with CollisionOptionsStateSaver(self.env.GetCollisionChecker(),
+                                        CollisionOptions.ActiveDOFs):
+            check = params.CheckPathAllConstraints(curr, goal, [], [], 0.,
+                                                   Closed)
 
         # The function returns a bitmask of ConstraintFilterOptions flags,
         # indicating which constraints are violated. We'll abort if any

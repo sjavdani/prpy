@@ -78,6 +78,8 @@ class OMPLPlanner(BasePlanner):
     def _Plan(self, robot, goal=None, timeout=30., shortcut_timeout=5.,
               continue_planner=False, ompl_args=None, 
               formatted_extra_params=None, **kw_args):
+        from openravepy import CollisionOptions, CollisionOptionsStateSaver
+
         extraParams = '<time_limit>{:f}</time_limit>'.format(timeout)
 
         if ompl_args is not None:
@@ -103,7 +105,11 @@ class OMPLPlanner(BasePlanner):
                 self.planner.InitPlan(robot, params)
                 self.setup = True
 
-            status = self.planner.PlanPath(traj, releasegil=True)
+            # Only collision check links affected by the active DOFs.
+            with CollisionOptionsStateSaver(self.env.GetCollisionChecker(),
+                                            CollisionOptions.ActiveDOFs):
+                status = self.planner.PlanPath(traj, releasegil=True)
+
             if status not in [ PlannerStatus.HasSolution,
                                PlannerStatus.InterruptedWithSolution ]:
                 raise PlanningError('Planner returned with status {0:s}.'.format(
