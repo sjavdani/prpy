@@ -32,6 +32,10 @@
 import logging, numpy, openravepy, scipy.misc, time, threading, math
 import scipy.optimize
 
+
+logger = logging.getLogger(__name__)
+
+
 def create_sensor(env, args, anonymous=True):
     sensor = openravepy.RaveCreateSensor(env, args)
     if sensor is None:
@@ -39,6 +43,58 @@ def create_sensor(env, args, anonymous=True):
 
     env.Add(sensor, anonymous)
     return sensor
+
+def CreatePlannerParametersString(options, params=None,
+                                  remove_postprocessing=True):
+    """ Creates an OpenRAVE parameter XML string.
+
+    OpenRAVE planners have an InitPlan function that either take an instance of
+    the PlannerParameters() struct or the serialized XML version of this
+    struct. Unfortunately, it is not possible to override several default
+    options in the Python API. This function takes a seed PlannerParameters
+    struct and a dictionary of key-value pairs to override. It returns XML that
+    can be passed directly to InitPlan.
+
+    @param options: dictionary of key-value pairs
+    @type  options: {str: str}
+    @param params: input struct (defaults to the defaults in OpenRAVE)
+    @type  params: openravepy.Planner.PlannerParameters
+    @return planner parameters string XML
+    @rtype  str
+    """
+    import lxml.etree
+    import openravepy
+    from copy import deepcopy
+
+    options = deepcopy(options)
+    if remove_postprocessing:
+        options['_postprocessing'] = None
+
+    if params is None:
+        params = openravepy.Planner.PlannerParameters()
+
+    params_xml = lxml.etree.fromstring(params.__repr__().split('"""')[1])
+
+    for key, value in options.iteritems():
+        element = params_xml.find(key)
+
+        # Remove a value if "value" is None.
+        if value is None:
+            if element is not None:
+                params_xml.remove(element)
+        # Add (or overwrite) and existing value.
+        else:
+            if element is None:
+                element = lxml.etree.SubElement(params_xml, key)
+
+            element.text = str(value)
+
+    if remove_postprocessing:
+        params_xml.append(
+            lxml.etree.fromstring("""<_postprocessing planner=""><_nmaxiterations>20</_nmaxiterations><_postprocessing planner="parabolicsmoother"><_nmaxiterations>100</_nmaxiterations></_postprocessing></_postprocessing>""")
+        )
+
+    return lxml.etree.tostring(params_xml)
 
 def HasAffineDOFs(cspec):
     def has_group(cspec, group_name):
@@ -231,10 +287,14 @@ def GetTrajectoryTags(traj):
 
     description = traj.GetDescription()
 
-    if description:
-        return json.loads(description)
-    else:
+    if description == '':
         return dict()
+    else:
+        try:
+            return json.loads(description)
+        except ValueError as e:
+            logger.warning('Failed reading tags from trajectory: %s', e.message)
+            return dict()
 
 
 def SetTrajectoryTags(traj, tags, append=False):
@@ -547,11 +607,12 @@ def ComputeJointVelocityFromTwist(robot, twist,
     jacobian_active = jacobian[rows, :]
 
     bounds = [(-x, x) for x in robot.GetActiveDOFMaxVel()]
+
     # Check for joint limits
     q_curr = robot.GetActiveDOFValues()
     q_min, q_max = robot.GetActiveDOFLimits()
-    dq_bounds = [(0, max) if (numpy.isclose(q_curr[i], q_min[i], atol=joint_limit_tolerance)) else
-                 (min, 0) if (numpy.isclose(q_curr[i], q_max[i], atol=joint_limit_tolerance)) else
+    dq_bounds = [(0, max) if q_curr[i] <= q_min[i] + joint_limit_tolerance else
+                 (min, 0) if q_curr[i] >= q_max[i] + joint_limit_tolerance else
                  (min, max) for i, (min, max) in enumerate(bounds)]
 
     if dq_init is None:
@@ -610,3 +671,81 @@ def GeodesicDistance(t1, t2, r=1.0):
     error = GeodesicError(t1, t2)
     error[3] = r*error[3]
     return numpy.linalg.norm(error)
+
+def FindCatkinResource(package, relative_path):
+    '''
+    Find a Catkin resource in the share directory or
+    the package source directory. Raises IOError
+    if resource is not found.
+    
+    @param relative_path Path relative to share or package 
+    source directory
+    @param package The package to search in
+    @return Absolute path to resource 
+    '''
+    from catkin.find_in_workspaces import find_in_workspaces
+    
+    paths = find_in_workspaces(project=package, search_dirs=['share'],
+                               path=relative_path, first_match_only=True)
+
+    if paths and len(paths) == 1:
+        return paths[0]
+    else:
+        raise IOError('Loading resource "{:s}" failed.'.format(
+                      relative_path))
+
+
+def IsAtTrajectoryStart(robot, trajectory):
+    """
+    Check if robot's DOFs match the start configuration of a trajectory.
+
+    This function examines the current DOF values of the specified robot and
+    compares these values to the first waypoint of the specified trajectory.
+    If every DOF value specified in the trajectory differs by less than the
+    DOF resolution of the specified joint/axis then it will return True.
+    Otherwise, it returns False.
+
+    @param robot: the robot whose active DOFs will be checked
+    @param trajectory: the trajectory whose start configuration will be checked
+    @returns: True if the robot's active DOFs match the given trajectory
+              False if one or more active DOFs differ by DOF resolution
+    """
+    # Get used indices and starting configuration from trajectory.
+    cspec = trajectory.GetConfigurationSpecification()
+    dof_indices, _ = cspec.ExtractUsedIndices(robot)
+    traj_values = cspec.ExtractJointValues(
+        trajectory.GetWaypoint(0), robot, dof_indices)
+
+    # Get current configuration of robot for used indices.
+    with robot.GetEnv():
+        robot_values = robot.GetDOFValues(dof_indices)
+        dof_resolutions = robot.GetDOFResolutions(dof_indices)
+
+    # Check deviation in each DOF, using OpenRAVE's SubtractValue function.
+    dof_infos = zip(dof_indices, traj_values, robot_values, dof_resolutions)
+    for dof_index, traj_value, robot_value, dof_resolution in dof_infos:
+        # Look up the Joint and Axis of the DOF from the robot.
+        joint = robot.GetJointFromDOFIndex(dof_index)
+        axis = dof_index - joint.GetDOFIndex()
+
+        # If any joint deviates too much, return False.
+        delta_value = abs(joint.SubtractValue(traj_value, robot_value, axis))
+        if delta_value > dof_resolution:
+            return False
+
+    # If all joints match, return True.
+    return True
+
+
+def IsTimedTrajectory(trajectory):
+    """
+    Returns True if the trajectory is timed.
+
+    This function checks whether a trajectory has a valid `deltatime` group,
+    indicating that it is a timed trajectory.
+
+    @param trajectory: an OpenRAVE trajectory
+    @returns: True if the trajectory is timed, False otherwise
+    """
+    cspec = trajectory.GetConfigurationSpecification()
+    return cspec.ExtractDeltaTime(trajectory.GetWaypoint(0)) is not None
