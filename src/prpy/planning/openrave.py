@@ -95,6 +95,7 @@ class OpenRAVEPlanner(BasePlanner):
                 self.setup = True
 
             status = self.planner.PlanPath(traj, releasegil=True)
+
             from openravepy import PlannerStatus
             if status not in [PlannerStatus.HasSolution,
                               PlannerStatus.InterruptedWithSolution]:
@@ -109,7 +110,6 @@ class OpenRAVEPlanner(BasePlanner):
 
 
 class BiRRTPlanner(OpenRAVEPlanner):
-
     def __init__(self):
         OpenRAVEPlanner.__init__(self, algorithm='birrt')
 
@@ -140,3 +140,13 @@ class BiRRTPlanner(OpenRAVEPlanner):
         # (This will raise ValueError if the goals are not equal length.)
         goals = numpy.ravel(numpy.vstack(goals))
         return self._Plan(robot, goals, **kw_args)
+
+    def _Plan(self, robot, *args, **kwargs):
+        path = super(BiRRTPlanner, self)._Plan(robot, *args, **kwargs)
+
+        # The OpenRAVE BiRRT planner returns a trajectory with no interpolation
+        # specified. Force the output to be linear.
+        openravepy.planningutils.ConvertTrajectorySpecification(
+            path, robot.GetActiveConfigurationSpecification('linear'))
+
+        return path
